@@ -13,7 +13,7 @@ def lambda_handler(event, context):
     sns = boto3.client("sns")
 
     # メッセージの作成
-    message = f"Bedrockエージェントがスライドを作成しました。以下のURLからアクセスできます：\n{signed_url}"
+    message = f"Bedrockエージェントがスライドを作成しました。URLの有効期限は1時間です：\n{signed_url}"
 
     # SNSメッセージの発行
     sns.publish(TopicArn=SNS_TOPIC_ARN, Message=message, Subject="スライド作成通知")
