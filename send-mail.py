@@ -1,5 +1,5 @@
 # Pyhton外部モジュールのインポート
-import json, boto3, os
+import os, json, boto3
 
 # SNSトピックARNを環境変数から取得
 SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
