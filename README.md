@@ -1,4 +1,4 @@
-# bedrock-pptx-agent
+# Bedrock PPTX Agent
 
 Amazon Bedrock AgentsにPowerPointプレゼン資料を作成させるサンプルコードです。
 詳細な設定手順は、以下のブログを参照ください。
