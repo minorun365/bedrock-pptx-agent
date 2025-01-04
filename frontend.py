@@ -1,8 +1,11 @@
+import os
+import json
 import uuid
 import boto3
-import json
 import streamlit as st
 from dotenv import load_dotenv
+from botocore.exceptions import ClientError
+from botocore.eventstream import EventStreamError
 
 def initialize_session():
     """セッションの初期設定を行う"""
@@ -20,6 +23,7 @@ def initialize_session():
 def display_chat_history(messages):
     """チャット履歴を表示する"""
     st.title("パワポ作ってメールで送るマン")
+    st.text("画面下部のチャットボックスから何でも依頼してね！")
     
     for message in messages:
         with st.chat_message(message['role']):
@@ -89,37 +93,53 @@ def handle_trace_event(event):
             with st.expander(f"🤖 サブエージェント「{agent_name}」から回答を取得しました", expanded=True):
                 st.write(trace["observation"]["agentCollaboratorInvocationOutput"]["output"]["text"])
 
+def invoke_bedrock_agent(client, session_id, prompt):
+    """Bedrockエージェントを呼び出す"""
+    load_dotenv()
+    return client.invoke_agent(
+        agentId=os.getenv("AGENT_ID"),
+        agentAliasId=os.getenv("AGENT_ALIAS_ID"),
+        sessionId=session_id,
+        enableTrace=True,
+        inputText=prompt,
+    )
+
+def handle_agent_response(response, messages):
+    """エージェントのレスポンスを処理する"""
+    with st.chat_message("assistant"):
+        for event in response.get("completion"):
+            if "trace" in event:
+                handle_trace_event(event)
+            
+            if "chunk" in event:
+                answer = event["chunk"]["bytes"].decode()
+                st.write(answer)
+                messages.append({"role": "assistant", "text": answer})
+
+def show_error_popup():
+    """エラーポップアップを表示する"""
+    st.error("【エラー】ナレッジベースのAurora DBがスリープしていたようです。数秒おいてから、ブラウザをリロードして再度お試しください🙏")
+
 def main():
     """メインのアプリケーション処理"""
     client, session_id, messages = initialize_session()
     display_chat_history(messages)
     
-    if prompt := st.chat_input("例：ナポレオンの生涯を資料にまとめて"):
-        # ユーザー入力の処理
+    if prompt := st.chat_input("例：うちの業界の生成AI活用事例をリサーチして"):
         messages.append({"role": "human", "text": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Bedrockエージェントの呼び出し
-        load_dotenv()
-        response = client.invoke_agent(
-            agentId=os.getenv("AGENT_ID"),
-            agentAliasId=os.getenv("AGENT_ALIAS_ID"),
-            sessionId=session_id,
-            enableTrace=True,
-            inputText=prompt,
-        )
-        
-        # レスポンスの処理
-        with st.chat_message("assistant"):
-            for event in response.get("completion"):
-                if "trace" in event:
-                    handle_trace_event(event)
-                
-                if "chunk" in event:
-                    answer = event["chunk"]["bytes"].decode()
-                    st.write(answer)
-                    messages.append({"role": "assistant", "text": answer})
+        try:
+            # Bedrockエージェントの呼び出し
+            response = invoke_bedrock_agent(client, session_id, prompt)
+            handle_agent_response(response, messages)
+            
+        except (EventStreamError, ClientError) as e:
+            if "dependencyFailedException" in str(e):
+                show_error_popup()
+            else:
+                raise e
 
 if __name__ == "__main__":
     main()
