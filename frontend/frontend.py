@@ -7,13 +7,10 @@ from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 from botocore.eventstream import EventStreamError
 
-agent_id = os.getenv("AGENT_ID")
-agent_alias_id = os.getenv("AGENT_ALIAS_ID")
-
 def initialize_session():
     """セッションの初期設定を行う"""
     if "client" not in st.session_state:
-        st.session_state.client = boto3.client("bedrock-agent-runtime")
+        st.session_state.client = boto3.client("bedrock-agent-runtime", region_name="us-west-2")
     
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
@@ -89,8 +86,8 @@ def invoke_bedrock_agent(client, session_id, prompt):
     """Bedrockエージェントを呼び出す"""
     load_dotenv()
     return client.invoke_agent(
-        agentId=agent_id,
-        agentAliasId=agent_alias_id,
+        agentId=os.getenv("AGENT_ID"),
+        agentAliasId=os.getenv("AGENT_ALIAS_ID"),
         sessionId=session_id,
         enableTrace=True,
         inputText=prompt,
