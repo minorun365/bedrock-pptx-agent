@@ -1,37 +1,38 @@
-# 必要なPythonライブラリをインポート
+import os
 import json
-from duckduckgo_search import DDGS
+from tavily import TavilyClient
 
-# メインのLambda関数
 def lambda_handler(event, context):
-
-    # イベントパラメーターから検索クエリを取得
-    query = next(
-        (item["value"] for item in event["parameters"] if item["name"] == "query"), ""
+    # 環境変数からAPIキーを取得
+    tavily_api_key = os.environ.get('TAVILY_API_KEY')
+    
+    # eventからクエリパラメータを取得
+    parameters = event.get('parameters', [])
+    for param in parameters:
+        if param.get('name') == 'query':
+            query = param.get('value')
+            break
+    
+    # Tavilyクライアントを初期化して検索を実行
+    client = TavilyClient(api_key=tavily_api_key)
+    search_result = client.get_search_context(
+        query=query,
+        search_depth="advanced",
+        max_results=10
     )
-
-    # DuckDuckGoを使用して検索を実行
-    results = list(
-        DDGS().text(keywords=query, region="jp-jp", safesearch="off", timelimit=None, max_results=10)
-    )
-
-    # 検索結果をフォーマット
-    summary = "\n\n".join(
-        [f"タイトル: {result['title']}\n要約: {result['body']}" for result in results]
-    )
-
-    # エージェント用のレスポンスを返す
+    
+    # 成功レスポンスを返す
     return {
-        "messageVersion": "1.0",
-        "response": {
-            "actionGroup": event["actionGroup"],
-            "function": event["function"],
-            "functionResponse": {
-                "responseBody": {
-                    "TEXT": {
-                        "body": json.dumps({"summary": summary}, ensure_ascii=False)
+        'messageVersion': event['messageVersion'],
+        'response': {
+            'actionGroup': event['actionGroup'],
+            'function': event['function'],
+            'functionResponse': {
+                'responseBody': {
+                    'TEXT': {
+                        'body': json.dumps(search_result, ensure_ascii=False)
                     }
                 }
-            },
-        },
+            }
+        }
     }

@@ -1,12 +1,12 @@
-# 必要なPythonライブラリをインポート
-import os, json, boto3
+import os
+import json
+import boto3
 from pptx import Presentation
 from datetime import datetime
 
 # 環境変数からS3バケット名を取得
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
 
-# Lambdaのメイン関数
 def lambda_handler(event, context):
 
     # イベントパラメータからトピックとコンテンツを抽出

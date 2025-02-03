@@ -1,4 +1,3 @@
-import os
 import json
 import uuid
 import boto3
@@ -7,10 +6,13 @@ from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 from botocore.eventstream import EventStreamError
 
+agent_id = os.getenv("AGENT_ID"),
+agent_alias_id = os.getenv("AGENT_ALIAS_ID")
+
 def initialize_session():
     """セッションの初期設定を行う"""
     if "client" not in st.session_state:
-        st.session_state.client = boto3.client("bedrock-agent-runtime", region_name="us-east-1")
+        st.session_state.client = boto3.client("bedrock-agent-runtime")
     
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
@@ -18,12 +20,15 @@ def initialize_session():
     if "messages" not in st.session_state:
         st.session_state.messages = []
     
+    if "last_prompt" not in st.session_state:
+        st.session_state.last_prompt = None
+    
     return st.session_state.client, st.session_state.session_id, st.session_state.messages
 
 def display_chat_history(messages):
     """チャット履歴を表示する"""
     st.title("パワポ作ってメールで送るマン")
-    st.text("画面下部のチャットボックスから何でも依頼してね！")
+    st.text("Web検索の結果をスライドにまとめて、メールで送るよ！")
     
     for message in messages:
         with st.chat_message(message['role']):
@@ -66,17 +71,8 @@ def handle_trace_event(event):
     # 「ツール呼び出し」トレースの表示
     if "invocationInput" in trace:
         invocation_type = trace["invocationInput"]["invocationType"]
-        
-        if invocation_type == "AGENT_COLLABORATOR":
-            agent_name = trace["invocationInput"]["agentCollaboratorInvocationInput"]["agentCollaboratorName"]
-            with st.expander(f"🤖 サブエージェント「{agent_name}」を呼び出し中…", expanded=True):
-                st.write(trace["invocationInput"]["agentCollaboratorInvocationInput"]["input"]["text"])
-        
-        elif invocation_type == "KNOWLEDGE_BASE":
-            with st.expander("📖 ナレッジベースを検索中…", expanded=False):
-                st.write(trace["invocationInput"]["knowledgeBaseLookupInput"]["text"])
-        
-        elif invocation_type == "ACTION_GROUP":
+                
+        if invocation_type == "ACTION_GROUP":
             with st.expander("💻 Lambdaを実行中…", expanded=False):
                 st.write(trace['invocationInput']['actionGroupInvocationInput'])
     
@@ -84,21 +80,16 @@ def handle_trace_event(event):
     if "observation" in trace:
         obs_type = trace["observation"]["type"]
         
-        if obs_type == "KNOWLEDGE_BASE":
-            with st.expander("🔍 ナレッジベースから検索結果を取得しました", expanded=False):
-                st.write(trace["observation"]["knowledgeBaseLookupOutput"]["retrievedReferences"])
-        
-        elif obs_type == "AGENT_COLLABORATOR":
-            agent_name = trace["observation"]["agentCollaboratorInvocationOutput"]["agentCollaboratorName"]
-            with st.expander(f"🤖 サブエージェント「{agent_name}」から回答を取得しました", expanded=True):
-                st.write(trace["observation"]["agentCollaboratorInvocationOutput"]["output"]["text"])
-
+        if obs_type == "ACTION_GROUP":
+            with st.expander(f"💻 Lambdaの実行結果を取得しました", expanded=False):
+                st.write(trace["observation"]["actionGroupInvocationOutput"]["text"])
+                
 def invoke_bedrock_agent(client, session_id, prompt):
     """Bedrockエージェントを呼び出す"""
     load_dotenv()
     return client.invoke_agent(
-        agentId=os.getenv("AGENT_ID"),
-        agentAliasId=os.getenv("AGENT_ALIAS_ID"),
+        agentId=agent_id,
+        agentAliasId=agent_alias_id,
         sessionId=session_id,
         enableTrace=True,
         inputText=prompt,
@@ -116,28 +107,29 @@ def handle_agent_response(response, messages):
                 st.write(answer)
                 messages.append({"role": "assistant", "text": answer})
 
-def show_error_popup():
+def show_error_popup(exeption):
     """エラーポップアップを表示する"""
-    st.error("【エラー】ナレッジベースのAurora DBがスリープしていたようです。数秒おいてから、ブラウザをリロードして再度お試しください🙏")
+    if exeption == "throttlingException":
+        error_message = "【エラー】Bedrockのモデル負荷が高いようです。1分ほど待ってから、ブラウザをリロードして再度お試しください🙏（改善しない場合は、モデルを変更するか[サービスクォータの引き上げ申請](https://aws.amazon.com/jp/blogs/news/generative-ai-amazon-bedrock-handling-quota-problems/)を実施ください）"
+    st.error(error_message)
 
 def main():
     """メインのアプリケーション処理"""
     client, session_id, messages = initialize_session()
     display_chat_history(messages)
     
-    if prompt := st.chat_input("例：うちの業界の生成AI活用事例をリサーチして"):
+    if prompt := st.chat_input("例：日本のBedrock最新事例をリサーチして"):
         messages.append({"role": "human", "text": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
         
         try:
-            # Bedrockエージェントの呼び出し
             response = invoke_bedrock_agent(client, session_id, prompt)
             handle_agent_response(response, messages)
             
         except (EventStreamError, ClientError) as e:
-            if "dependencyFailedException" in str(e):
-                show_error_popup()
+            if "throttlingException" in str(e):
+                show_error_popup("throttlingException")
             else:
                 raise e
 
