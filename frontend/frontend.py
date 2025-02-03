@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 from botocore.eventstream import EventStreamError
 
-agent_id = os.getenv("AGENT_ID"),
+agent_id = os.getenv("AGENT_ID")
 agent_alias_id = os.getenv("AGENT_ALIAS_ID")
 
 def initialize_session():
