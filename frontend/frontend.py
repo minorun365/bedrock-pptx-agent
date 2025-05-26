@@ -1,16 +1,24 @@
-import os
 import json
 import uuid
 import boto3
 import streamlit as st
-from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 from botocore.eventstream import EventStreamError
 
 def initialize_session():
     """セッションの初期設定を行う"""
     if "client" not in st.session_state:
-        st.session_state.client = boto3.client("bedrock-agent-runtime", region_name="us-west-2")
+        # Streamlit Cloud用にAWS認証情報を設定
+        if "AWS_ACCESS_KEY_ID" in st.secrets:
+            st.session_state.client = boto3.client(
+                "bedrock-agent-runtime",
+                region_name=st.secrets.get("AWS_DEFAULT_REGION"),
+                aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+                aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"]
+            )
+        else:
+            # ローカル開発用（環境変数またはデフォルト認証を使用）
+            st.session_state.client = boto3.client("bedrock-agent-runtime")
     
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
@@ -21,12 +29,18 @@ def initialize_session():
     if "last_prompt" not in st.session_state:
         st.session_state.last_prompt = None
     
+    if "agent_id" not in st.session_state:
+        st.session_state.agent_id = st.secrets.get("AGENT_ID", "")
+    
+    if "agent_alias_id" not in st.session_state:
+        st.session_state.agent_alias_id = st.secrets.get("AGENT_ALIAS_ID", "")
+    
     return st.session_state.client, st.session_state.session_id, st.session_state.messages
 
 def display_chat_history(messages):
     """チャット履歴を表示する"""
     st.title("パワポ作ってメールで送るマン")
-    st.text("Web検索の結果をスライドにまとめて、メールで送るよ！")
+    st.text("ｴｯﾎｴｯﾎ　あなたの代わりにスライド作らなきゃ　ｴｯﾎｴｯﾎ")
     
     for message in messages:
         with st.chat_message(message['role']):
@@ -82,12 +96,11 @@ def handle_trace_event(event):
             with st.expander(f"💻 Lambdaの実行結果を取得しました", expanded=False):
                 st.write(trace["observation"]["actionGroupInvocationOutput"]["text"])
                 
-def invoke_bedrock_agent(client, session_id, prompt):
+def invoke_bedrock_agent(client, session_id, prompt, agent_id, agent_alias_id):
     """Bedrockエージェントを呼び出す"""
-    load_dotenv()
     return client.invoke_agent(
-        agentId=os.getenv("AGENT_ID"),
-        agentAliasId=os.getenv("AGENT_ALIAS_ID"),
+        agentId=agent_id,
+        agentAliasId=agent_alias_id,
         sessionId=session_id,
         enableTrace=True,
         inputText=prompt,
@@ -113,8 +126,37 @@ def show_error_popup(exeption):
 
 def main():
     """メインのアプリケーション処理"""
+    # ページ設定でサイドバーを初期状態で閉じる
+    st.set_page_config(
+        page_title="パワポ作ってメールで送るマン",
+        page_icon="📧",
+        initial_sidebar_state="collapsed"
+    )
+    
     client, session_id, messages = initialize_session()
+    
+    # サイドバーでAgent IDとAlias IDを入力
+    with st.sidebar:
+        st.header("設定")
+        agent_id = st.text_input(
+            "エージェントID",
+            value=st.session_state.agent_id
+        )
+        agent_alias_id = st.text_input(
+            "エイリアスID",
+            value=st.session_state.agent_alias_id
+        )
+        
+        # 入力値をセッションに保存
+        st.session_state.agent_id = agent_id
+        st.session_state.agent_alias_id = agent_alias_id
+    
     display_chat_history(messages)
+    
+    # Agent IDが設定されていない場合はチャット入力を無効化
+    if not agent_id or not agent_alias_id:
+        st.chat_input("例：日本のBedrock最新事例をリサーチして", disabled=True)
+        return
     
     if prompt := st.chat_input("例：日本のBedrock最新事例をリサーチして"):
         messages.append({"role": "human", "text": prompt})
@@ -122,7 +164,7 @@ def main():
             st.markdown(prompt)
         
         try:
-            response = invoke_bedrock_agent(client, session_id, prompt)
+            response = invoke_bedrock_agent(client, session_id, prompt, agent_id, agent_alias_id)
             handle_agent_response(response, messages)
             
         except (EventStreamError, ClientError) as e:
